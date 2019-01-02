@@ -1,0 +1,11 @@
+#!/bin/bash
+# --------------------------------------------------------------
+# NAME  : set-wallpaper
+# DESC  : Sets the wallpaper to the file passed in as an argument.
+#         Updates the theme to match the wallpaper.
+# AUTHOR: Thomas Pedneault
+# DATE  : Tue Jan  1 01:53:44 UTC 2019
+# --------------------------------------------------------------
+
+wal -a 90 -i "$1"
+nitrogen --set-scaled "$1"

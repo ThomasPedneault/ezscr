@@ -1,0 +1,193 @@
+#!/bin/bash
+# --------------------------------------------------------------
+# NAME   : ezscr 
+# DESC   : Easy Script Manager utility
+# AUTHOR : Thomas Pedneault
+# DATE   : December 31st, 2018
+# --------------------------------------------------------------
+
+function usage {
+  echo "Usage: ezscr [-l] [-fdbr file]"
+  echo "  -h       display this help message"
+  echo "  -l       lists all the scripts"
+  echo "  -f file  specify the script file to edit / create"
+  echo "  -d file  specify the script file to delete"
+  echo "  -b file  specify the script file to backup"
+  echo "  -r file  specify the script file to restore from backup"
+}
+
+# Prompts the user to create the script in the .ezscr/bin/ directory.
+function create_script {
+  # Verify if the script already exists in any $PATH directories.
+  if [ -x "$(command -v $1)" ]; then
+    echo "Script already exists. Aborting..."
+    exit 1
+  else
+    # Make sure that the user is aware that they are creating a new script.
+    read -p "$1 does not exist. Would you like to create it? [Y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]*$ ]]; then
+      echo "Will not proceed to create the script. Aborting..."
+      exit 0
+    fi
+  fi 
+
+  # Fetch the author and descrption from the user.
+  read -p 'Author: ' author
+  read -p 'Description: ' description
+
+  # Create the script and add the header.
+  current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  script_path="$current_dir/bin/$1"
+
+  echo "#!/bin/bash" > "$script_path"
+  echo "# --------------------------------------------------------------" >> "$script_path"
+  echo "# NAME   : $1" >> "$script_path"
+  echo "# DESC   : $description" >> "$script_path"
+  echo "# AUTHOR : $author" >> "$script_path"
+  echo "# DATE   : $(date)" >> "$script_path"
+  echo "# --------------------------------------------------------------" >> "$script_path"
+
+  # Set the permissions of the script.
+  chmod 755 "$script_path"
+}
+
+function list_scripts {
+  echo ""
+  current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  scripts=$(ls "$current_dir/bin")
+  count=1
+  for file in ${scripts[@]}; do
+    echo "$count) $file"
+    echo "$(cat "$current_dir/bin/$file" | awk '/DESC/,/DATE/')"
+    echo ""
+    ((count++))
+  done
+}
+
+# Validate that the file exists. 
+function validate_file {
+  # Get the name of the script from the user.
+  if [[ "${OPTARG}" == "" ]]; then
+    echo "Script name cannot be empty. Aborting..."
+    exit 1
+  fi
+
+  # Verify if the script already exists in the bin/ directory.
+  current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+  script_path="$current_dir/bin/${OPTARG}"
+
+  # Verify if the script exists in the bin/ directory 
+  if [ ! -f "$script_path" ]; then
+    create_script "${OPTARG}"
+  fi
+}
+
+while getopts "hlf:d:b:r:" opt; do
+  case $opt in
+    h) ;;
+    l)
+      list_scripts
+      exit 0
+      ;;
+    f)
+      # Verify if the script already exists in the bin/ directory.
+      current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+      script_path="$current_dir/bin/${OPTARG}"
+
+      # Verify if the script exists in the bin/ directory 
+      if [ ! -f "$script_path" ]; then
+        create_script "${OPTARG}"
+      fi
+
+      # Open the script for editing. 
+      vim "$script_path"
+      if [[ "$?" != 0 ]]; then
+        vi "$script_path"
+      fi
+      exit 0
+      ;;
+    d)
+      current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+      script_path="$current_dir/bin/${OPTARG}"
+      if [ ! -f "$script_path" ]; then
+        echo "Script does not exist. Aborting..."
+        exit 0
+      fi
+
+      # Make sure that the user is aware that they are deleting the script.
+      read -p "Are you sure that you want to delete ${OPTARG}? [Y/N] " -n 1 -r
+      echo
+      if [[ ! $REPLY =~ ^[Yy]*$ ]]; then
+        echo "Will not proceed to delete the script. Aborting..."
+        exit 0
+      fi
+
+      # Delete the script
+      rm "$script_path"
+      ls "$current_dir/bin" | grep "${OPTARG}">/dev/null
+      if [[ "$?" == 1 ]]; then
+        echo "${OPTARG} has been successfully deleted!"
+        exit 0
+      else
+        echo "Error attempting to delete file. Aborting..."
+        exit 1
+      fi
+      ;;
+    b)
+      current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+      script_path="$current_dir/bin/${OPTARG}"
+      if [ ! -f "$script_path" ]; then
+        echo "Script does not exist. Aborting..."
+        exit 1
+      fi
+
+      backup_path="$current_dir/bin/.${OPTARG}.bak"
+      newest_backup="$(ls -a "$current_dir/bin/" | grep ".${OPTARG}.bak" | sort -V | tail -1)"
+      counter="${newest_backup//".${OPTARG}.bak"}"
+      while [ -f "$backup_path$counter" ]; do
+        ((counter++))
+      done
+      cp "$script_path" "$backup_path$counter"
+      if [ -f "$backup_path$counter" ]; then
+        echo "Successfully created backup at $backup_path$counter!"
+        exit 0
+      else
+        echo "Failed to create backup. Aborting..."
+        exit 1
+      fi
+      ;;
+    r)
+      current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+      script_path="$current_dir/bin/${OPTARG}"
+      if [ ! -f "$script_path" ]; then
+        echo "Script does not exist. Aborting..."
+        exit 1
+      fi
+
+      newest_backup="$(ls -a "$current_dir/bin/" | grep ".${OPTARG}.bak" | sort -V | tail -1)"
+      if [[ "$newest_backup" == "" ]]; then
+        echo "No backup available. Aborting..."
+        exit 0
+      fi
+
+      # Make sure that the user is aware that they are deleting the script.
+      read -p "Override $script_path with $newest_backup? [Y/N] " -n 1 -r
+      echo
+      if [[ ! $REPLY =~ ^[Yy]*$ ]]; then
+        echo "Will not proceed to restore the script. Aborting..."
+        exit 0
+      fi
+
+      cp "$current_dir/bin/$newest_backup" "$script_path"
+      echo "Successfully restored backup to $script_path!"
+      exit 0
+      ;;
+    :)
+      echo "Option ${OPTARG} requires an argument. Aborting..."
+      exit 1
+      ;;
+  esac
+done
+
+usage
